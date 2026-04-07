@@ -868,6 +868,218 @@ The user can ask for status at any time:
 "Go back to spec" → Reset pipeline to spec phase, preserve existing reports
 "Cancel" → Archive current state, no deploy
 
+## Recovery & Resilience
+
+The pipeline must survive CLI crashes, interruptions, and environmental failures.
+
+### Core Principle: File State is Truth
+
+The pipeline's state lives in `.claude/pipeline/manifest.md`, not in the conversation. If Claude Code crashes, restarts, or loses context, the pipeline resumes by reading the manifest. Every step writes to disk BEFORE marking complete.
+
+Write order for every skill:
+1. Write report to feature directory → `features/[slug]/[skill]-report.md`
+2. Update manifest.md → mark step complete
+3. Git commit → persist to history
+4. THEN proceed to next step
+
+If a crash happens between steps 1 and 3, the report exists but manifest isn't updated. On resume, the orchestrator sees "step not marked complete" but finds the report file → asks: "Design audit report exists but wasn't marked complete. Use it or re-run?"
+
+### Recovery: Context Window Compression
+
+When the conversation gets long, Claude compresses earlier messages and may lose skill instructions.
+
+**Guard:** Every skill should be self-contained in its SKILL.md. If the conversation context is lost, the orchestrator can re-read the skill file and resume. The manifest tells it exactly where to continue.
+
+**For long-running pipelines:** After every 3 skills, write a checkpoint summary to the manifest:
+```markdown
+## Checkpoint — 2026-04-07T11:30:00Z
+Completed: product-spec, feature-dev, design-audit
+Next: qa-test
+Key context: 3 files changed, 2 design issues fixed, dark mode verified
+```
+This checkpoint is what gets read on resume — not the full conversation history.
+
+### Recovery: Ctrl+C / Terminal Close / Crash
+
+**Guard:** The lock file (`.claude/pipeline/.lock`) tracks the current operation:
+```
+operation: qa-test
+started: 2026-04-07T11:30:00Z
+pid: 12345
+step: executing test flows (3 of 8)
+```
+
+On next `/ship` invocation:
+1. Read lock file — detect interrupted operation
+2. Read manifest — find last completed step
+3. Ask user:
+   > "Pipeline was interrupted during qa-test (3 of 8 flows completed).
+   > Options:
+   > 1. Resume qa-test from where it stopped
+   > 2. Restart qa-test from the beginning
+   > 3. Skip qa-test, move to next skill
+   > 4. Cancel pipeline"
+
+**For Maestro/Playwright:** If the capture process was interrupted, partial screenshots exist. The skill should count what was captured and report: "47 of 107 screenshots captured before interruption. Resume capture or use what we have?"
+
+### Recovery: Session Timeout
+
+Long operations that may exceed session limits:
+- AI itinerary generation (60-120s)
+- Full Maestro test suite (5-10 min)
+- npm audit with slow registry (30s+)
+
+**Guard:** For operations that take >60s, use background execution:
+```bash
+# Run in background, write output to file
+maestro test flow.yaml > .claude/pipeline/.bg-output 2>&1 &
+echo $! > .claude/pipeline/.bg-pid
+```
+
+On timeout/resume, check if the background process completed:
+```bash
+# Check if background task finished
+if [ -f .claude/pipeline/.bg-pid ]; then
+  pid=$(cat .claude/pipeline/.bg-pid)
+  if kill -0 $pid 2>/dev/null; then
+    echo "Background task still running (PID $pid)"
+  else
+    echo "Background task completed"
+    cat .claude/pipeline/.bg-output
+  fi
+fi
+```
+
+### Recovery: Tool Permission Denied
+
+User denies a Bash, Edit, or Write tool call mid-skill.
+
+**Guard:** Don't retry the denied action. Instead:
+1. Log what was attempted and why
+2. Ask the user how to proceed:
+   > "I tried to run `npm audit` but the command was denied.
+   > This was needed for the security audit dependency check.
+   > Options:
+   > 1. Grant permission and retry
+   > 2. Skip this check (noted in report as SKIPPED)
+   > 3. Run it yourself and paste the output"
+3. If the user denies a critical operation, mark the skill as INCOMPLETE, not FAILED
+
+### Recovery: Background Agent Failure
+
+When skills run in parallel as subagents, one might fail silently.
+
+**Guard:** After launching parallel agents, set a timeout:
+```
+Launched:
+- design-audit (agent A)
+- qa-test (agent B)
+- security-audit (agent C)
+
+Timeout: 15 minutes per agent
+```
+
+Check each agent's output file for completion markers. If an agent times out:
+> "Security audit agent hasn't responded in 15 minutes. It may have crashed.
+> Options:
+> 1. Wait longer
+> 2. Re-run security-audit as a foreground task
+> 3. Skip it"
+
+### Recovery: Maestro/Playwright Hangs
+
+Capture commands can hang if the app isn't responding or the simulator crashed.
+
+**Guard:** Always run with a timeout:
+```bash
+# Timeout after 5 minutes per flow
+timeout 300 maestro test flow.yaml 2>&1
+EXIT_CODE=$?
+if [ $EXIT_CODE -eq 124 ]; then
+  echo "TIMEOUT: Maestro hung. Possible causes:"
+  echo "  - App not running (Metro stopped?)"
+  echo "  - Simulator frozen"
+  echo "  - Element never appeared"
+fi
+```
+
+On hang: kill the process, report what was captured, suggest remediation.
+
+### Recovery: Disk Full
+
+```bash
+# Check available disk space
+AVAILABLE_MB=$(df -m . | tail -1 | awk '{print $4}')
+if [ "$AVAILABLE_MB" -lt 500 ]; then
+  echo "WARNING: Less than 500MB disk space. Screenshots and reports may fail."
+fi
+```
+
+If disk is low:
+- Skip screenshot capture (text-only audit)
+- Compress existing screenshots: `find . -name "*.png" -exec pngquant {} \;`
+- Warn user before proceeding
+
+### Recovery: Git State Changed Externally
+
+```bash
+# Check for upstream changes
+git fetch --quiet 2>/dev/null
+LOCAL=$(git rev-parse HEAD)
+REMOTE=$(git rev-parse @{u} 2>/dev/null)
+if [ "$LOCAL" != "$REMOTE" ]; then
+  echo "WARNING: Remote branch has new commits"
+fi
+```
+
+If upstream changed:
+> "The remote branch has new commits since the pipeline started.
+> Options:
+> 1. Pull and rebase (might conflict with pipeline files)
+> 2. Continue with current state (push will need force or merge later)
+> 3. Abort pipeline and pull first"
+
+### Recovery: MCP Server Disconnects
+
+If Supabase/Figma MCP tools become unavailable mid-skill:
+- Skills that depend on MCP: `/data-seed` (Supabase queries), `/db-migrate` (Supabase migrations), design mockup generation (Figma)
+- On disconnect: mark the MCP-dependent operation as SKIPPED
+- Suggest alternatives: "Supabase MCP disconnected. You can run the migration manually: `npx supabase db query --linked -f migration.sql`"
+- Never block the entire pipeline for an MCP failure
+
+### Recovery: Resume After Hours/Days
+
+The most important recovery scenario — user walks away and comes back.
+
+On every `/ship` invocation, FIRST check for existing state:
+
+```bash
+if [ -f .claude/pipeline/manifest.md ]; then
+  # Read last state
+  status=$(grep "^status:" .claude/pipeline/manifest.md | head -1)
+  feature=$(grep "^name:" .claude/pipeline/manifest.md | head -1)
+  last_step=$(grep "\[x\]" .claude/pipeline/manifest.md | tail -1)
+  next_step=$(grep "\[ \]" .claude/pipeline/manifest.md | head -1)
+fi
+```
+
+Present resume prompt:
+> "Welcome back. I found an active pipeline:
+> 
+> **Feature:** photo-gallery
+> **Last completed:** design-audit (2 days ago)
+> **Next up:** qa-test
+> **Status:** paused
+> 
+> Options:
+> 1. Resume from qa-test
+> 2. Re-run from design-audit (code may have changed)
+> 3. Start fresh (archive this pipeline)
+> 4. Cancel and clean up"
+
+If the feature branch has new commits since the last skill ran, recommend re-running recent skills:
+> "4 commits were pushed since design-audit ran. The code has changed. I'd recommend re-running design-audit before continuing to qa-test."
+
 ## Error Handling
 
 If a skill fails or finds CRITICAL issues:
