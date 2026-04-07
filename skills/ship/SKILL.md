@@ -336,6 +336,250 @@ On future runs, skip bootstrap. Just read manifest.md and continue:
 > "Welcome back. Last session: shipped photo-gallery feature.
 > What are we working on today?"
 
+## Edge Case Guards
+
+Before executing the pipeline, detect and handle these edge cases. Check ALL of them on every run.
+
+### 1. Monorepo Detection
+
+```bash
+# Check for monorepo indicators
+ls lerna.json turbo.json nx.json pnpm-workspace.yaml 2>/dev/null
+ls packages/ apps/ services/ 2>/dev/null
+grep -q "workspaces" package.json 2>/dev/null
+```
+
+If monorepo detected, ask:
+> "This is a monorepo. I found multiple apps:
+> 1. `packages/web` — Next.js
+> 2. `packages/mobile` — React Native
+> 3. `packages/api` — Express
+> 
+> Which one should I work on? Or all?"
+
+Store the selected app root. All skills scope their scans to that directory, not the repo root.
+
+For shared packages (`packages/ui`, `packages/utils`), note them as dependencies that cross-app skills should scan.
+
+### 2. Docker / Container Development
+
+```bash
+# Check if app runs in Docker
+ls Dockerfile docker-compose.yml docker-compose.yaml 2>/dev/null
+docker ps 2>/dev/null | grep -v CONTAINER | head -5
+```
+
+If Docker detected:
+- Check if ports are mapped: `docker ps --format '{{.Ports}}'`
+- Try both `localhost` and `host.docker.internal`
+- For Maestro/Playwright: the app must be accessible from the HOST, not inside the container
+- If app is only in container: "App runs in Docker. Maestro needs the app on the host. Either expose the port (`-p 3000:3000`) or run the app natively for testing."
+
+### 3. Windows / WSL / Linux (No iOS Simulator)
+
+```bash
+# Detect OS
+OS="unknown"
+[[ "$OSTYPE" == "darwin"* ]] && OS="macos"
+[[ "$OSTYPE" == "linux"* ]] && OS="linux"
+[[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]] && OS="windows"
+grep -q Microsoft /proc/version 2>/dev/null && OS="wsl"
+```
+
+| OS | iOS Simulator | Android Emulator | Web (Playwright) |
+|----|--------------|-----------------|-------------------|
+| macOS | ✅ | ✅ | ✅ |
+| Linux | ❌ | ✅ | ✅ |
+| Windows | ❌ | ✅ | ✅ |
+| WSL | ❌ | ❌ (complex) | ✅ |
+
+If no iOS simulator:
+> "You're on [Linux/Windows/WSL]. iOS simulator isn't available.
+> Options:
+> 1. Test Android via emulator (if installed)
+> 2. Test web via Playwright (if web version exists)
+> 3. Skip mobile capture — generate manual device-test checklist instead
+> 
+> Which approach?"
+
+Never assume macOS. Never assume iOS simulator exists.
+
+### 4. Linter / Formatter Pre-commit Hooks
+
+```bash
+# Check for pre-commit hooks
+ls .husky/ .git/hooks/pre-commit 2>/dev/null
+grep -q "lint-staged\|prettier\|eslint" package.json 2>/dev/null
+cat .husky/pre-commit 2>/dev/null | head -5
+```
+
+If formatters exist:
+- After writing any code, run the formatter BEFORE committing: `npx prettier --write [file]` or `npx eslint --fix [file]`
+- For pipeline commits (manifest.md, reports), these are markdown — formatters usually don't touch them
+- If a pre-commit hook REJECTS a pipeline commit, tell the user: "Pre-commit hook rejected the commit. You may need to add `.claude/pipeline/` to your lint-staged ignore."
+- Never use `--no-verify` to skip hooks unless the user explicitly asks
+
+### 5. Protected Branches
+
+```bash
+# Check current branch
+BRANCH=$(git branch --show-current)
+# Check if branch has protection (can't detect remotely, but can check common patterns)
+[[ "$BRANCH" == "main" || "$BRANCH" == "master" || "$BRANCH" == "production" ]] && echo "PROTECTED_BRANCH"
+```
+
+If on a protected branch:
+> "You're on `main` which may have branch protection. Pipeline commits might fail.
+> Options:
+> 1. Create a feature branch first: `git checkout -b feature/[slug]`
+> 2. Skip pipeline commits (just run skills, don't track in git)
+> 3. Continue anyway (if branch isn't actually protected)"
+
+For pipeline commits, prefer a feature branch. Merge pipeline artifacts with the feature code.
+
+### 6. Production Database Safety
+
+```bash
+# Check which database the app is pointing to
+grep -i "DATABASE_URL\|SUPABASE_URL\|MONGO_URI\|FIREBASE_PROJECT" .env .env.local 2>/dev/null
+# Check for production indicators in the URL
+grep -iE "prod|production|live|\.com" .env 2>/dev/null | grep -iE "DATABASE\|SUPABASE\|MONGO\|FIREBASE"
+```
+
+**CRITICAL GUARD:** Before ANY skill that writes data (`/data-seed`, `/db-migrate`, `/qa-test` destructive tests):
+
+> "⚠️ Your database URL appears to be PRODUCTION:
+> `https://pqnrqlrapypsqbfajyrq.supabase.co`
+> 
+> Data-modifying operations could affect real users.
+> Options:
+> 1. Switch to a dev/staging database first
+> 2. Proceed with READ-ONLY operations (audits only, no writes)
+> 3. I understand the risk, proceed anyway
+> 
+> I will NOT write to a production database without explicit confirmation."
+
+For `/data-seed`: ALWAYS ask, even if the URL doesn't look like production.
+For `/db-migrate`: Show the migration SQL and require explicit "run it" before executing.
+For `/qa-test` destructive tests: Skip destructive scenarios on production.
+
+### 7. Context Window Management
+
+For large projects, the combined manifest + reports + screenshots can exceed context limits.
+
+**Mitigation strategies:**
+- **Summarize, don't dump:** When passing context between skills, pass a 50-line summary, not the full 500-line report
+- **Lazy loading:** Skills read only the sections of manifest.md they need, not the whole file
+- **Truncate history:** Only keep the last 3 feature pipelines in manifest. Archive older ones to `history/`
+- **Screenshot references:** Store screenshot file paths, don't try to read 100 screenshots in one turn
+- **Chunk large reports:** If a QA report has 50 test results, pass the summary ("38 passed, 12 failed") and the failures only
+
+**Hard limits:**
+- Manifest.md should stay under 200 lines
+- Each skill report should stay under 300 lines
+- Feature directory should be archived when the feature ships
+- Never read more than 20 screenshots in one skill invocation
+
+### 8. Concurrent Users / Parallel Runs
+
+```bash
+# Check for lock file
+ls .claude/pipeline/.lock 2>/dev/null
+```
+
+Before starting a pipeline:
+- Create a lock file: `.claude/pipeline/.lock` with timestamp + user
+- If lock exists and is < 1 hour old: "Another pipeline run is in progress (started [time]). Wait or force unlock?"
+- If lock exists and is > 1 hour old: stale lock, auto-remove
+- Remove lock when pipeline completes or is cancelled
+
+For skills running in parallel (design-audit + qa-test + security-audit):
+- Each writes to its OWN report file — no conflicts
+- Only the orchestrator writes to manifest.md — no parallel writes
+- Use atomic file writes (write to .tmp, then rename)
+
+### 9. Non-English Codebases
+
+```bash
+# Detect primary language of comments/strings
+# Sample first 100 lines with user-facing text
+grep -rn "label=\|title=\|text=" src/ --include="*.tsx" --include="*.vue" | head -20
+```
+
+If non-ASCII text detected:
+- `/content-copy`: note the primary language, don't flag non-English strings as "inconsistent"
+- `/qa-test`: edge case data should include the app's language characters, not just ASCII
+- `/design-audit`: text overflow checks are MORE important (CJK characters have different widths)
+- Don't assume English. Ask: "I detected [Japanese/Chinese/etc] strings. Is this the primary language?"
+
+### 10. Rate Limiting on External APIs
+
+When running skills in parallel, they may all hit the same APIs:
+
+**Mitigation:**
+- Stagger parallel skill starts by 5 seconds
+- If any API returns 429 (rate limit), back off and retry after the `Retry-After` header value
+- For Google Places API: cap at 10 requests per skill invocation
+- For Supabase: respect the connection pool limit
+- For Anthropic API (Scout/itinerary): only one skill should call AI endpoints at a time
+
+**For autonomous/CI mode:**
+- Add explicit delays between API-heavy operations
+- Set a global rate limit: max 30 external API calls per pipeline run
+- Log all API calls for cost tracking
+
+### 11. Git Submodules / Nested Repos
+
+```bash
+# Check for submodules
+ls .gitmodules 2>/dev/null
+# Check for nested .git directories
+find . -name ".git" -not -path "./.git" -type d 2>/dev/null | head -5
+```
+
+If submodules detected:
+- Only scan the main repository, not submodules
+- Note submodules in the manifest: "Submodules detected: [list]. These are scanned separately."
+- Don't count submodule files in coverage metrics
+- Don't modify files in submodules
+
+If nested repos detected (not submodules):
+- Ask user which is the main project
+- Scope all skills to the selected root
+
+### 12. Offline / No Internet
+
+```bash
+# Quick connectivity check
+curl -s --max-time 3 https://api.github.com > /dev/null 2>&1 && echo "ONLINE" || echo "OFFLINE"
+```
+
+If offline:
+- Skills that need internet: `/data-seed` (Google Places), `/security-audit` (npm audit), `/analytics-audit` (web search), `/app-store` (keyword research)
+- Skills that work offline: `/design-audit` (screenshots are local), `/qa-test` (Maestro is local), `/perf-audit` (bundle analysis is local), `/db-migrate` (SQL generation is local)
+- Mark internet-dependent operations as SKIPPED, not FAILED
+- Tell user: "No internet detected. Running offline-capable skills only. These will be skipped: [list]"
+
+### Edge Case Summary
+
+Run ALL checks at pipeline start. Report status:
+
+```
+Edge Case Checks:
+  Monorepo:         ✅ Single app (not monorepo)
+  Docker:           ✅ Not Docker (native dev)
+  OS:               ✅ macOS — iOS simulator available
+  Pre-commit hooks: ⚠️ Husky + Prettier detected — will format before commits
+  Branch:           ✅ On feature/photo-gallery (not protected)
+  Database:         ⚠️ Looks like production URL — will ask before writes
+  Context size:     ✅ Project is small/medium
+  Concurrent:       ✅ No lock file — single user
+  Language:         ✅ English
+  Rate limits:      ✅ Will stagger parallel API calls
+  Submodules:       ✅ None
+  Internet:         ✅ Online
+```
+
 ## Pipeline Execution
 
 ### Phase 1: Initialize
