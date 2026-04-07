@@ -94,6 +94,117 @@ The orchestrator:
 - Git commits after each phase
 - Stops at human approval gates
 
+## Commands
+
+`/ship` accepts subcommands. When invoked with arguments, match against these before doing intent detection.
+
+### Core Commands
+
+| Command | What it does |
+|---------|-------------|
+| `/ship` | Auto-detect intent from context, propose execution plan |
+| `/ship help` | Show all available commands and installed skills |
+| `/ship status` | Show current pipeline state (reading manifest.md) |
+| `/ship resume` | Resume an interrupted pipeline from where it stopped |
+| `/ship cancel` | Cancel current pipeline, archive state, remove lock |
+
+### Template Commands
+
+| Command | What it does |
+|---------|-------------|
+| `/ship templates` | List all available templates (built-in + custom) |
+| `/ship [template-name]` | Run a specific template (e.g., `/ship quick-release`) |
+| `/ship create-template [name]` | Create a new custom template interactively |
+| `/ship edit-template [name]` | Edit an existing template |
+| `/ship delete-template [name]` | Delete a custom template |
+
+### Skill Commands
+
+| Command | What it does |
+|---------|-------------|
+| `/ship skills` | List all installed skills with status |
+| `/ship add [skill]` | Show install instructions for a skill |
+| `/ship remove [skill]` | Remove a skill from the registry (doesn't delete files) |
+| `/ship run [skill]` | Run a single skill outside of a pipeline |
+
+### Pipeline Commands
+
+| Command | What it does |
+|---------|-------------|
+| `/ship plan` | Show the proposed execution plan without running |
+| `/ship history` | Show recent pipeline runs and their outcomes |
+| `/ship report` | Show the latest report from the current/last pipeline |
+| `/ship clean` | Archive old pipeline data, remove stale lock files |
+
+### Examples
+
+```
+/ship                              → "What are we working on?" (auto-detect)
+/ship fix the login bug            → intent: bug-fix, proposes plan
+/ship quick-release                → uses quick-release template
+/ship help                         → shows this command list
+/ship status                       → "photo-gallery: step 5/9, qa-test in progress"
+/ship resume                       → picks up where it left off
+/ship skills                       → "12 installed: design-audit ✅, qa-test ✅, ..."
+/ship run security-audit           → runs just security-audit, no pipeline
+/ship plan add dark mode support   → shows plan without executing
+/ship templates                    → "4 templates: full-feature, bug-fix, ..."
+/ship create-template my-flow      → interactive template builder
+/ship history                      → "Last 5 runs: photo-gallery ✅, login-fix ✅, ..."
+/ship clean                        → archives completed pipelines
+```
+
+### Help Output
+
+When user types `/ship help`, show:
+
+```
+/ship — Pipeline Orchestrator
+
+USAGE
+  /ship                           Auto-detect intent and propose plan
+  /ship [description]             Start pipeline for a task
+  /ship [template]                Run a saved template
+
+COMMANDS
+  help                            Show this help
+  status                          Current pipeline state
+  resume                          Resume interrupted pipeline
+  cancel                          Cancel and archive current pipeline
+  plan [description]              Show execution plan without running
+  history                         Recent pipeline runs
+  report                          Latest pipeline report
+  clean                           Archive old pipeline data
+
+SKILLS
+  skills                          List installed skills
+  run [skill]                     Run a single skill
+  add [skill]                     Install a skill
+  remove [skill]                  Unregister a skill
+
+TEMPLATES
+  templates                       List all templates
+  create-template [name]          Create custom template
+  edit-template [name]            Edit template
+  delete-template [name]          Delete template
+  [template-name]                 Run named template
+
+BUILT-IN TEMPLATES
+  full-feature                    spec → dev → audit → deploy
+  bug-fix                         dev → test → deploy
+  quick-release                   test → security → deploy
+  audit-only                      all quality checks, no deploy
+
+INSTALLED SKILLS (N of 16)
+  ✅ design-audit  ✅ qa-test  ✅ security-audit  ...
+
+EXAMPLES
+  /ship fix the checkout bug
+  /ship quick-release
+  /ship run design-audit
+  /ship create-template my-release-flow
+```
+
 ## Skill Registry & Custom Pipelines
 
 ### Skill Registry
