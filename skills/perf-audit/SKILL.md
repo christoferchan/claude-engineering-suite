@@ -471,3 +471,13 @@ When done, write the structured report to the pipeline path (see Phase 0). The r
 - Every finding with file path and estimated impact
 - Fix status (proposed / approved / applied / skipped)
 - Before/after measurements where available
+
+## Anti-Patterns
+
+- DON'T optimize before measuring — profile first, then fix the actual bottleneck
+- DON'T flag every re-render as a problem — only flag re-renders that cause visible jank
+- DON'T recommend code splitting for screens that are always loaded (tabs, home)
+- DON'T flag image sizes without knowing the display size — a 200px thumbnail doesn't need a 4K source
+- DON'T recommend memoization for cheap computations — useMemo has overhead too
+- DON'T ignore platform differences — a Web Vitals check on a React Native app is meaningless
+- DON'T measure performance on debug/dev builds — only measure release/production builds

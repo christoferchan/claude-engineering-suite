@@ -471,3 +471,14 @@ When done, write the structured report to the pipeline path (see Phase 0). The r
 - Severity summary (CRITICAL/MAJOR/MINOR counts)
 - Every finding with file path and line number
 - Fix status (proposed / approved / applied / skipped)
+
+## Anti-Patterns
+
+- DON'T flag test credentials in test files as exposed secrets
+- DON'T recommend security measures that break usability without discussing tradeoffs
+- DON'T assume HTTPS is configured just because the code uses https:// URLs
+- DON'T skip client-side checks — RLS is server-side but client can still leak data patterns
+- DON'T flag dependencies as vulnerable without checking if the vulnerable code path is actually used
+- DON'T scan node_modules — scan package.json and lock files instead
+- DON'T ignore social engineering vectors — password reset flows, OAuth redirects, email verification
+- DON'T report the same vulnerability in multiple files as separate issues — flag it once as systemic

@@ -490,3 +490,14 @@ When done, write the structured report to the pipeline path (see Phase 0). The r
 - Generated migration file path
 - Generated rollback file path
 - Fix status (proposed / approved / applied / skipped)
+
+## Anti-Patterns
+
+- DON'T run migrations on production without explicit user confirmation
+- DON'T generate DROP TABLE or DROP COLUMN without a rollback script
+- DON'T add NOT NULL columns without a default value or backfill plan
+- DON'T create indexes on large tables without CONCURRENTLY (locks the table)
+- DON'T assume the migration tool — detect Prisma, Supabase, Rails, Django, etc.
+- DON'T skip RLS policy updates when adding new tables (Supabase)
+- DON'T generate a migration that depends on application code running first
+- DON'T batch unrelated schema changes in one migration — one concern per migration

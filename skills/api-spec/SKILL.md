@@ -482,3 +482,13 @@ When done, write the structured report to the pipeline path (see Phase 0). The r
 - Every finding with file path
 - Generated OpenAPI spec location
 - Fix status (proposed / approved / applied / skipped)
+
+## Anti-Patterns
+
+- DON'T generate specs from stale code — always read the current source before generating
+- DON'T skip authentication checks on "internal" endpoints — they might be reachable externally
+- DON'T ignore error response format consistency — every endpoint should return the same error shape
+- DON'T test endpoints with hardcoded auth tokens — tokens expire and break CI
+- DON'T flag a breaking change without checking if any client actually uses the changed field
+- DON'T generate specs for deprecated endpoints without marking them deprecated
+- DON'T assume REST — detect GraphQL, gRPC, WebSocket, and RPC patterns

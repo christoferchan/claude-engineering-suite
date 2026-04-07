@@ -443,3 +443,13 @@ When done, write the structured report to the pipeline path (see Phase 0). The r
 - Flow coverage percentage
 - Every finding with file path
 - Fix status (proposed / approved / applied / skipped)
+
+## Anti-Patterns
+
+- DON'T flag missing tracking on internal/admin screens — only user-facing flows need tracking
+- DON'T add tracking events for every micro-interaction — track decisions and outcomes, not clicks
+- DON'T store PII (email, name, phone) in event properties without explicit consent
+- DON'T use inconsistent event naming — pick a convention (snake_case, camelCase) and enforce it
+- DON'T track the same action with multiple events — one action = one event
+- DON'T assume events fire correctly because the code looks right — verify in the analytics dashboard
+- DON'T skip funnel analysis — individual events are useless without understanding the flow
