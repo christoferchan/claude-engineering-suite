@@ -94,47 +94,123 @@ The orchestrator:
 - Git commits after each phase
 - Stops at human approval gates
 
+## How to Invoke
+
+**IMPORTANT:** Claude Code skills are NOT CLI commands. You can't type `/ship audit-only` as a single command. Here's how it actually works:
+
+### Step 1: Load the skill
+Type one of these:
+```
+use ship
+```
+or
+```
+/ship
+```
+
+### Step 2: Tell it what you want
+After the skill loads, type your request as a **normal message**:
+```
+audit-only
+```
+```
+help
+```
+```
+fix the login bug
+```
+```
+status
+```
+
+### Full example:
+```
+you: use ship
+claude: [loads skill, detects project, shows installed skills]
+       "What are we working on?"
+
+you: audit-only
+claude: [proposes audit-only execution plan]
+       "I'll run: design-audit → qa-test → security-audit → perf-audit
+        Proceed?"
+
+you: yes
+claude: [executes pipeline]
+```
+
+### Common Mistakes
+
+❌ **DON'T** type `/ship audit-only` — Claude Code doesn't pass arguments to skills
+❌ **DON'T** type `ship audit-only` after the skill loads — just type `audit-only`
+❌ **DON'T** expect `/ship status` to work as a CLI command — type `use ship` first, then `status`
+
+✅ **DO** type `use ship` or `/ship` first to load the skill
+✅ **DO** then type your request as a normal message
+✅ **DO** use natural language: "run a full audit", "fix the checkout bug", "what's the status"
+
+### Alternative: Skip the skill, just ask
+
+You don't even need to load the skill explicitly. Just describe what you want:
+```
+you: run a design audit and security audit on this project
+claude: [detects intent, loads appropriate skills, executes]
+```
+
+Claude will recognize the intent and invoke the right skills. The `/ship` skill just adds pipeline tracking, templates, and cross-session resume.
+
 ## Commands
 
-`/ship` accepts subcommands. When invoked with arguments, match against these before doing intent detection.
+After the skill is loaded, these are the intents it recognizes. Type them as normal messages.
 
-### Core Commands
+### Core
 
-| Command | What it does |
-|---------|-------------|
-| `/ship` | Auto-detect intent from context, propose execution plan |
-| `/ship help` | Show all available commands and installed skills |
-| `/ship status` | Show current pipeline state (reading manifest.md) |
-| `/ship resume` | Resume an interrupted pipeline from where it stopped |
-| `/ship cancel` | Cancel current pipeline, archive state, remove lock |
+| You type | What happens |
+|----------|-------------|
+| `help` | Show all available commands and installed skills |
+| `status` | Show current pipeline state |
+| `resume` | Resume an interrupted pipeline |
+| `cancel` | Cancel current pipeline, archive state |
 
-### Template Commands
+### Templates
 
-| Command | What it does |
-|---------|-------------|
-| `/ship templates` | List all available templates (built-in + custom) |
-| `/ship [template-name]` | Run a specific template (e.g., `/ship quick-release`) |
-| `/ship create-template [name]` | Create a new custom template interactively |
-| `/ship edit-template [name]` | Edit an existing template |
-| `/ship delete-template [name]` | Delete a custom template |
+| You type | What happens |
+|----------|-------------|
+| `templates` | List all available templates |
+| `audit-only` | Run the audit-only template |
+| `full-feature` | Run the full-feature template |
+| `bug-fix` | Run the bug-fix template |
+| `quick-release` | Run the quick-release template |
+| `create template [name]` | Create a new custom template |
+| `edit template [name]` | Edit an existing template |
+| `delete template [name]` | Delete a custom template |
 
-### Skill Commands
+### Skills
 
-| Command | What it does |
-|---------|-------------|
-| `/ship skills` | List all installed skills with status |
-| `/ship add [skill]` | Show install instructions for a skill |
-| `/ship remove [skill]` | Remove a skill from the registry (doesn't delete files) |
-| `/ship run [skill]` | Run a single skill outside of a pipeline |
+| You type | What happens |
+|----------|-------------|
+| `skills` | List all installed skills with status |
+| `run [skill]` | Run a single skill outside of a pipeline |
+| `add [skill]` | Show install instructions for a skill |
 
-### Pipeline Commands
+### Pipeline
 
-| Command | What it does |
-|---------|-------------|
-| `/ship plan` | Show the proposed execution plan without running |
-| `/ship history` | Show recent pipeline runs and their outcomes |
-| `/ship report` | Show the latest report from the current/last pipeline |
-| `/ship clean` | Archive old pipeline data, remove stale lock files |
+| You type | What happens |
+|----------|-------------|
+| `plan [description]` | Show execution plan without running |
+| `history` | Show recent pipeline runs |
+| `report` | Show latest pipeline report |
+| `clean` | Archive old pipeline data |
+
+### Natural Language (also works)
+
+| You type | Detected intent |
+|----------|----------------|
+| "fix the login bug" | Bug fix pipeline |
+| "add a photo gallery" | New feature pipeline |
+| "ship it" / "deploy" | Release pipeline |
+| "check everything" | Audit-only pipeline |
+| "what's the status" | Status dashboard |
+| "pick up where we left off" | Resume |
 
 ### Command Details
 
@@ -335,56 +411,53 @@ Proceed? [yes / no]
 
 ### Examples
 
+Load the skill first (`use ship` or `/ship`), then type any of these:
+
 ```
-/ship                              → "What are we working on?" (auto-detect)
-/ship fix the login bug            → intent: bug-fix, proposes plan
-/ship quick-release                → uses quick-release template
-/ship help                         → shows this command list
-/ship status                       → "photo-gallery: step 5/9, qa-test in progress"
-/ship resume                       → picks up where it left off
-/ship skills                       → "12 installed: design-audit ✅, qa-test ✅, ..."
-/ship run security-audit           → runs just security-audit, no pipeline
-/ship plan add dark mode support   → shows plan without executing
-/ship templates                    → "4 templates: full-feature, bug-fix, ..."
-/ship create-template my-flow      → interactive template builder
-/ship history                      → "Last 5 runs: photo-gallery ✅, login-fix ✅, ..."
-/ship clean                        → archives completed pipelines
+"fix the login bug"                → intent: bug-fix, proposes plan
+"audit-only"                       → runs all quality skills
+"quick-release"                    → uses quick-release template
+"help"                             → shows command list
+"status"                           → shows pipeline dashboard
+"resume"                           → picks up where it left off
+"skills"                           → lists installed skills
+"run security-audit"               → runs just one skill
+"plan add dark mode support"       → shows plan without executing
+"templates"                        → lists available templates
+"create template my-flow"          → interactive template builder
+"history"                          → shows recent pipeline runs
+```
+
+Or skip the skill entirely and just describe what you want:
+```
+"run a design audit and QA test on this project"
+"check this codebase for security issues"
+"deploy to production"
 ```
 
 ### Help Output
 
-When user types `/ship help`, show:
+When user types `help` after loading the skill, show:
 
 ```
-/ship — Pipeline Orchestrator
+Ship — Pipeline Orchestrator
 
-USAGE
-  /ship                           Auto-detect intent and propose plan
-  /ship [description]             Start pipeline for a task
-  /ship [template]                Run a saved template
+HOW TO USE
+  1. Type: use ship (or /ship)
+  2. Then tell me what you want in plain English
 
-COMMANDS
+COMMANDS (type after skill loads)
   help                            Show this help
   status                          Current pipeline state
   resume                          Resume interrupted pipeline
-  cancel                          Cancel and archive current pipeline
-  plan [description]              Show execution plan without running
+  cancel                          Cancel and archive
+  plan [description]              Show plan without running
   history                         Recent pipeline runs
   report                          Latest pipeline report
-  clean                           Archive old pipeline data
-
-SKILLS
   skills                          List installed skills
   run [skill]                     Run a single skill
-  add [skill]                     Install a skill
-  remove [skill]                  Unregister a skill
-
-TEMPLATES
   templates                       List all templates
-  create-template [name]          Create custom template
-  edit-template [name]            Edit template
-  delete-template [name]          Delete template
-  [template-name]                 Run named template
+  clean                           Archive old pipeline data
 
 BUILT-IN TEMPLATES
   full-feature                    spec → dev → audit → deploy
@@ -392,14 +465,19 @@ BUILT-IN TEMPLATES
   quick-release                   test → security → deploy
   audit-only                      all quality checks, no deploy
 
-INSTALLED SKILLS (N of 16)
-  ✅ design-audit  ✅ qa-test  ✅ security-audit  ...
+INSTALLED SKILLS
+  [auto-detected from ~/.claude/skills/]
 
 EXAMPLES
-  /ship fix the checkout bug
-  /ship quick-release
-  /ship run design-audit
-  /ship create-template my-release-flow
+  "fix the checkout bug"          → bug-fix pipeline
+  "audit-only"                    → runs all quality skills
+  "add a photo gallery feature"   → full-feature pipeline
+  "status"                        → shows pipeline dashboard
+  "resume"                        → picks up where you left off
+  "run security-audit"            → runs just one skill
+
+NOTE: Don't type /ship audit-only — just type "audit-only"
+after the skill loads. Commands are plain text, not slash commands.
 ```
 
 ## Skill Registry & Custom Pipelines

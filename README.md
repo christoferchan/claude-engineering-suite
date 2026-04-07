@@ -131,14 +131,39 @@ git clone https://github.com/christoferchan/claude-engineering-suite.git ~/.clau
 # Open your project
 cd your-project
 claude
+```
 
-# Ship a feature
-/ship "add dark mode support"
+Then in Claude Code:
+```
+# Load the orchestrator
+you: use ship
+claude: "What are we working on?"
+
+# Tell it what you want (plain text, not slash commands)
+you: audit-only
+claude: [runs design-audit → qa-test → security-audit → perf-audit]
 
 # Or run individual skills
-/design-audit
-/qa-test
-/security-audit
+you: use design-audit
+you: use qa-test
+you: use security-audit
+```
+
+> **Important:** Don't type `/ship audit-only` — that won't work. Type `use ship` first, then `audit-only` as a separate message. Skills are loaded first, then you talk to them.
+
+### Common Mistakes
+
+```
+❌  /ship audit-only              ← doesn't work
+❌  /ship fix the login bug       ← doesn't work
+
+✅  use ship                      ← load skill first
+    audit-only                    ← then type your request
+
+✅  use ship
+    fix the login bug
+
+✅  use design-audit              ← or run skills directly
 ```
 
 ## Credits
