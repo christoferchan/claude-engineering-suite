@@ -1394,18 +1394,36 @@ Use the Agent tool to launch parallel skills as background agents.
 
 ## Pipeline Templates
 
+**CRITICAL INSTRUCTION:** When the user types a template name (e.g., "audit-only", "full-feature", "bug-fix"), you MUST execute ALL steps in that template — not just the first skill. A template is a complete pipeline, not a suggestion to run one skill.
+
+**CRITICAL INSTRUCTION:** Every template run MUST write to `.claude/pipeline/`. Create the manifest, write reports, log the session. Even a quick audit-only run gets documented so future sessions know what happened.
+
+### How to Execute a Template
+
+1. Create `.claude/pipeline/features/[slug]/` and `manifest.md`
+2. Show the execution plan to the user, wait for approval
+3. Execute EACH step in order (or in parallel where marked PARALLEL)
+4. For each skill: invoke it using the Skill tool, wait for it to complete, write its report
+5. Update manifest after each skill completes
+6. At GATE points, stop and ask the user
+7. When all steps complete, write session log to history
+
 ### Template: New Feature (full pipeline)
+
+Trigger: user says "new feature", "build", "add", "implement"
+
+Execute ALL of these steps in order:
 ```
-1. /product-spec → spec.md
+1. /product-spec → write spec.md
    GATE: user approves spec
 2. /feature-dev → implement code
    GATE: user reviews code
-3. PARALLEL:
-   - /design-audit → design-audit.md
-   - /qa-test → qa-report.md
-   - /security-audit → security-report.md
-   - /perf-audit → perf-report.md
-   - /analytics-audit → analytics-report.md
+3. PARALLEL (launch ALL of these as agents):
+   - /design-audit → write design-audit.md
+   - /qa-test → write qa-report.md
+   - /security-audit → write security-report.md
+   - /perf-audit → write perf-report.md
+   - /analytics-audit → write analytics-report.md
    GATE: user reviews all reports
 4. Fix any CRITICAL/MAJOR issues from reports
 5. /deploy → staging
@@ -1415,6 +1433,10 @@ Use the Agent tool to launch parallel skills as background agents.
 ```
 
 ### Template: Bug Fix (fast track)
+
+Trigger: user says "fix", "bug", "broken"
+
+Execute ALL of these steps:
 ```
 1. /incident → diagnose root cause (if not already known)
 2. /feature-dev → implement fix
@@ -1424,9 +1446,13 @@ Use the Agent tool to launch parallel skills as background agents.
 ```
 
 ### Template: Release (quality gate)
+
+Trigger: user says "release", "ship it", "deploy", "push to production"
+
+Execute ALL of these steps:
 ```
-1. PARALLEL:
-   - /design-audit → full app
+1. PARALLEL (launch ALL of these):
+   - /design-audit → full app audit
    - /qa-test → full regression
    - /security-audit → full scan
    - /perf-audit → full profiling
@@ -1437,16 +1463,32 @@ Use the Agent tool to launch parallel skills as background agents.
 ```
 
 ### Template: Audit Only (no deploy)
+
+Trigger: user says "audit-only", "audit", "check everything", "pre-release check"
+
+**This is the most common template.** When the user types "audit-only", execute ALL of these — not just one:
+
 ```
-1. PARALLEL:
-   - /design-audit
-   - /qa-test
-   - /security-audit
-   - /perf-audit
-   - /analytics-audit
-2. Generate combined report
-3. Prioritize findings
+1. Create .claude/pipeline/ manifest with template: audit-only
+2. Show plan: "I'll run these 5 audits in parallel: [list installed ones]"
+3. PARALLEL (launch ALL installed quality skills as agents):
+   - /design-audit → captures screenshots, checks visual quality
+   - /qa-test → maps flows, generates + runs functional tests
+   - /security-audit → scans secrets, auth, dependencies, OWASP
+   - /perf-audit → bundle size, rendering, images, memory
+   - /analytics-audit → tracking events, funnels, coverage
+   (skip any that aren't installed — don't fail, just note "not installed")
+4. Wait for ALL to complete
+5. Collect all reports from .claude/pipeline/features/[slug]/
+6. Generate combined report:
+   - Total issues by severity across all skills
+   - Top 5 highest-priority items
+   - Per-skill summary (X issues found, Y critical)
+7. Write session log to .claude/pipeline/history/
+8. Present combined report to user
 ```
+
+**DO NOT** just run one skill and stop. The whole point of audit-only is running everything.
 
 ## Status Commands
 
