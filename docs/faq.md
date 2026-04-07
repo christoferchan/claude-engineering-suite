@@ -85,3 +85,81 @@ Your code is sent to Claude's API for analysis — that's how the skills work. C
 No code is sent to any other service. The skills don't phone home, collect telemetry, or transmit data anywhere besides the Claude API.
 
 Review [Anthropic's data policy](https://www.anthropic.com/privacy) for how Claude handles your data. Key point: API inputs are not used to train models.
+
+---
+
+## Known Limitations & Feature Requests
+
+These are things the skill suite **cannot do** due to Claude Code platform constraints, not skill design choices.
+
+### Skill invocation doesn't support arguments
+
+```
+❌  /ship audit-only          ← Claude Code ignores "audit-only"
+✅  use ship → "audit-only"   ← load first, then type request
+```
+
+**Why:** Claude Code's Skill tool loads the SKILL.md as context but doesn't pass arguments from the slash command. All skills are invoked as `use [name]` or `/[name]`, then you communicate via normal messages.
+
+**Workaround:** Type `use ship`, then type your command as a regular message.
+
+**Feature request for Anthropic:** Allow `Skill(name, args)` to pass arguments so `use ship audit-only` works in one step.
+
+### No interactive UI elements
+
+```
+❌  Dropdown menus, checkboxes, progress bars
+✅  Numbered options the user types a number for
+```
+
+**Why:** Claude Code is text-only. No terminal UI widgets (like inquirer.js prompts).
+
+**Workaround:** Skills use numbered options. Type `1`, `2`, or `3` to select.
+
+### No real-time notifications
+
+```
+❌  "Security audit found a critical issue!" (push notification)
+✅  Check status manually: "use ship" → "status"
+```
+
+**Why:** Skills can't send notifications. They run when invoked and produce output.
+
+**Workaround:** For CI, generate a report file. For Slack/email alerts, use the `/schedule` skill to run audits on a cron and pipe results to a webhook.
+
+### No persistent background processes
+
+```
+❌  "Watch for file changes and re-run design-audit"
+✅  Run design-audit manually when needed, or schedule via cron
+```
+
+**Why:** Skills execute once per invocation. They can't watch for filesystem changes.
+
+**Workaround:** Use the `/loop` skill to poll on an interval, or set up a GitHub Actions workflow that runs on PRs.
+
+### Skills can't call other skills directly
+
+```
+❌  /design-audit internally calls /qa-test when it finds issues
+✅  /ship orchestrates: runs design-audit, then qa-test, passing context via files
+```
+
+**Why:** Skills are independent. Only the orchestrator (`/ship`) chains them together by reading/writing to `.claude/pipeline/`.
+
+**Workaround:** Use `/ship` for multi-skill workflows. Or just tell Claude: "run design-audit then qa-test" — it'll do both sequentially.
+
+### Context window limits on large projects
+
+```
+❌  Read all 200 screenshots + all reports + full manifest in one turn
+✅  Summarize reports, read screenshots in batches of 20
+```
+
+**Why:** Claude has a context window. Very large projects with many files can exceed it.
+
+**Workaround:** Skills are designed to summarize, not dump. Manifest stays under 200 lines. Reports stay under 300 lines. Screenshots are referenced by path, not all read at once.
+
+---
+
+If Anthropic adds any of these capabilities, the skills will automatically benefit — the architecture is designed to take advantage of argument passing, notifications, and inter-skill communication when they become available.
