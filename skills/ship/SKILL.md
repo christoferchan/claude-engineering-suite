@@ -191,6 +191,86 @@ Pipeline: data-seed / content-copy / app-store (as needed)
 
 Ask the user if intent is ambiguous: "Are you building a new feature, fixing a bug, or preparing a release?"
 
+## Project Bootstrap (existing projects)
+
+When `/ship` runs on a project for the first time, detect and create what's missing:
+
+### Step 1: Check project essentials
+
+```bash
+# Pipeline directory
+ls .claude/pipeline/manifest.md 2>/dev/null || echo "NO_PIPELINE"
+
+# Design system
+find src/ -name "theme.*" -o -name "tokens.*" -o -name "tailwind.config.*" 2>/dev/null | head -1 || echo "NO_THEME"
+
+# Project documentation
+ls CLAUDE.md 2>/dev/null || echo "NO_CLAUDE_MD"
+
+# Test infrastructure
+ls jest.config.* vitest.config.* 2>/dev/null || echo "NO_TEST_CONFIG"
+
+# CI/CD
+ls .github/workflows/*.yml 2>/dev/null || echo "NO_CI"
+
+# Git
+ls .gitignore 2>/dev/null || echo "NO_GITIGNORE"
+```
+
+### Step 2: Create what's missing
+
+**If no `.claude/pipeline/`:**
+```bash
+mkdir -p .claude/pipeline/features .claude/pipeline/history
+```
+Create `manifest.md` with initial state.
+
+**If no `CLAUDE.md`:**
+Generate one by scanning the codebase:
+- Detect framework, language, directory structure
+- Read existing README.md for project context
+- Scan component patterns (button variants, card styles, input styles)
+- Scan color usage (extract palette from existing code)
+- Scan spacing patterns
+- Document all findings as design system rules
+- Write to `CLAUDE.md`
+
+Tell the user: "I created a CLAUDE.md with design system rules based on your codebase. Review it — this becomes the source of truth for all audits."
+
+**If no theme file:**
+Delegate to `/design-audit` Phase 0B which handles theme creation per framework (React Native, Tailwind, CSS variables, etc.)
+
+**If no test config:**
+Note in manifest: "No test infrastructure detected. /qa-test will generate test config if invoked."
+
+**If no CI:**
+Note in manifest: "No CI pipeline detected. /deploy can generate GitHub Actions workflow if invoked."
+
+**If no `.gitignore` or missing entries:**
+Check that these are gitignored:
+- `.env`, `.env.local` (secrets)
+- `node_modules/` (dependencies)
+- `.claude/pipeline/` (optional — some teams want this tracked, some don't)
+
+### Step 3: First-run summary
+
+Present to user:
+> "First time running /ship on this project. Here's what I found:
+> 
+> ✅ Exists: React Native + Expo, Supabase backend, 287 testIDs
+> ✅ Created: .claude/pipeline/, CLAUDE.md (review this)
+> ❌ Missing: CI pipeline, test config (will create when needed)
+> 
+> Installed skills: design-audit, qa-test, security-audit, deploy
+> 
+> Ready to proceed?"
+
+### Subsequent runs
+
+On future runs, skip bootstrap. Just read manifest.md and continue:
+> "Welcome back. Last session: shipped photo-gallery feature.
+> What are we working on today?"
+
 ## Pipeline Execution
 
 ### Phase 1: Initialize
