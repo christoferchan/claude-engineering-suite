@@ -136,6 +136,203 @@ The orchestrator:
 | `/ship report` | Show the latest report from the current/last pipeline |
 | `/ship clean` | Archive old pipeline data, remove stale lock files |
 
+### Command Details
+
+#### `/ship status`
+
+Reads manifest.md, session logs, and git state. Shows a complete dashboard:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Pipeline Status
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Feature:    photo-gallery
+Branch:     feature/photo-gallery
+Template:   full-feature
+Started:    2 days ago
+Last active: 12 hours ago (christofers-macbook)
+
+Progress:   ██████████░░░░░░ 5 of 9 steps
+
+  1. product-spec      ✅ done   (15 min)
+  2. feature-dev       ✅ done   (45 min)
+  3. design-audit      ✅ done   (30 min) — 5 issues, 4 fixed
+  4. qa-test           ✅ done   (18 min) — 38 passed, 2 failed
+  5. security-audit    ✅ done   (8 min)  — 0 critical
+  6. perf-audit        ⏳ next
+  7. analytics-audit   ○ pending
+  8. deploy → staging  ○ pending
+  9. deploy → prod     ○ pending
+
+Blockers:   none
+Open issues: 2 (1 major from qa-test, 1 minor from design-audit)
+
+Last session:
+  "Completed qa-test and security-audit. 2 QA failures
+   need fixing: checkout form validation + empty cart
+   state. Security passed clean."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Quick Actions
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  /ship resume          Continue from perf-audit
+  /ship report          View full audit reports
+  /ship run qa-test     Re-run QA after fixing failures
+  /ship cancel          Archive and start fresh
+```
+
+**What it reads:**
+1. `.claude/pipeline/manifest.md` — pipeline progress, current step
+2. `.claude/pipeline/features/[slug]/*.md` — skill reports (issue counts, pass/fail)
+3. `.claude/pipeline/history/*.md` — last session log (context, decisions)
+4. `git log --oneline -5 .claude/pipeline/` — recent pipeline commits
+5. `.claude/pipeline/.lock` — is another instance running?
+
+**When no pipeline is active:**
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Pipeline Status
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+No active pipeline.
+
+Recent history:
+  ✅ photo-gallery     shipped 3 days ago    (9 steps, 3h 20m)
+  ✅ login-fix         shipped 5 days ago    (3 steps, 45m)
+  ✅ dark-mode-polish  shipped 1 week ago    (5 steps, 1h 30m)
+
+Start something new:
+  /ship [description]      Start a new pipeline
+  /ship [template-name]    Use a template
+  /ship help               See all options
+```
+
+**When another instance is running:**
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Pipeline Status
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Feature:    photo-gallery
+Branch:     feature/photo-gallery
+
+⚠️ Pipeline is LOCKED
+   Instance: christofers-macbook (terminal 2)
+   Running:  qa-test (started 3 min ago)
+   Heartbeat: 1 min ago (active)
+
+This pipeline is being worked on by another session.
+Wait for it to finish, or:
+  /ship status --watch    Auto-refresh every 30s
+  /ship cancel --force    Force unlock (use with caution)
+```
+
+#### `/ship resume`
+
+Pulls latest git state, reads manifest + last session log, proposes continuation:
+
+```
+Pulling latest pipeline state...
+
+Last session (12 hours ago, christofers-macbook):
+  Feature: photo-gallery
+  Completed: spec ✅, dev ✅, design-audit ✅, qa-test ✅, security ✅
+  Next: perf-audit
+  
+  Context from last session:
+  - 2 QA failures still open: checkout validation + empty cart
+  - Security passed clean
+  - "Upload uses Supabase Storage, test with >5MB files"
+
+  Decisions made:
+  - 2-column grid (not horizontal scroll)
+  - Video support deferred to v2
+
+⚠️ 3 commits pushed since last session:
+  a3f8b2c fix: checkout validation error message
+  b7e1d4a fix: empty cart state rendering  
+  c9d2e5f update: cart test assertions
+
+These commits may fix the 2 QA failures. Recommend:
+  1. Re-run qa-test first (verify fixes), then continue to perf-audit
+  2. Skip re-run, go straight to perf-audit
+  3. Start fresh from design-audit (code changed significantly)
+```
+
+#### `/ship report`
+
+Shows the combined report from all completed skills:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Pipeline Report: photo-gallery
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Overall: 7 issues found, 5 fixed, 2 open
+
+DESIGN AUDIT (5 issues)
+  ✅ Fixed: dark mode gallery border
+  ✅ Fixed: image placeholder contrast
+  ✅ Fixed: touch target on upload button
+  ✅ Fixed: spacing between gallery and reviews
+  ○ Open: thumbnail radius 8px → 14px (nice-to-have)
+
+QA TEST (38 passed, 2 failed)
+  ❌ Checkout validation shows error before submit
+  ❌ Empty cart renders blank screen
+  (fixes committed — needs re-test)
+
+SECURITY (0 issues)
+  ✅ Clean — no vulnerabilities found
+
+Full reports:
+  .claude/pipeline/features/photo-gallery/design-audit.md
+  .claude/pipeline/features/photo-gallery/qa-report.md
+  .claude/pipeline/features/photo-gallery/security-report.md
+```
+
+#### `/ship history`
+
+Shows recent pipeline runs:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Pipeline History
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ⏳ photo-gallery       in progress   5/9 steps   started 2 days ago
+  ✅ login-fix            shipped       3/3 steps   45 min total
+  ✅ dark-mode-polish     shipped       5/5 steps   1h 30m total
+  ✅ onboarding-redesign  shipped       9/9 steps   4h 15m total
+  ❌ payment-integration  cancelled     2/7 steps   "descoped from v1"
+
+Totals (last 30 days):
+  Shipped: 8 features
+  Avg cycle: 2.5 hours
+  Issues caught: 47 (before production)
+
+Details: /ship report [feature-name]
+```
+
+#### `/ship cancel`
+
+Archives and cleans up:
+
+```
+Cancel pipeline: photo-gallery?
+
+This will:
+  - Archive all reports to .claude/pipeline/history/
+  - Remove the lock file
+  - Clear the active manifest
+  - NOT delete your code changes or git branch
+
+Reason for cancellation (optional): "descoped from v1"
+
+Proceed? [yes / no]
+```
+
 ### Examples
 
 ```
