@@ -94,6 +94,210 @@ The orchestrator:
 - Git commits after each phase
 - Stops at human approval gates
 
+## Skill Registry & Custom Pipelines
+
+### Skill Registry
+
+The orchestrator maintains a registry at `.claude/pipeline/skill-registry.md` that maps installed skills, their capabilities, and user preferences.
+
+**Auto-discovery** — scan on every run:
+```bash
+for dir in ~/.claude/skills/*/; do
+  if [ -f "$dir/SKILL.md" ]; then
+    name=$(basename "$dir")
+    desc=$(head -3 "$dir/SKILL.md" | grep "description:" | sed 's/description: //')
+    echo "$name | $desc"
+  fi
+done
+```
+
+**Register third-party skills** — any SKILL.md in `~/.claude/skills/` is automatically discovered. To add someone else's skill:
+```bash
+git clone https://github.com/someone/their-cool-skill.git ~/.claude/skills/their-cool-skill
+# Next /ship run: "New skill detected: their-cool-skill — added to registry"
+```
+
+**Skill capabilities tagging** — each skill declares what it does so `/ship` knows when to call it:
+```markdown
+# In the registry, auto-generated from SKILL.md frontmatter:
+analytics-audit  | quality    | audit     | tracks events and funnels
+api-spec         | engineering| audit     | validates API contracts
+deploy           | ops        | action    | deploys to production
+design-audit     | quality    | audit     | visual QA from screenshots
+qa-test          | quality    | test      | functional testing
+security-audit   | quality    | audit     | vulnerability scanning
+```
+
+Categories:
+- **quality** — checks something (read-only, safe to run anytime)
+- **engineering** — generates or modifies code artifacts
+- **ops** — interacts with infrastructure or external services
+- **product** — creates specs, copy, or planning documents
+
+Types:
+- **audit** — scans and reports, no side effects
+- **test** — executes tests, may need running app
+- **action** — does something (deploy, migrate, seed)
+- **generate** — creates new files (specs, copy, configs)
+
+### Custom Pipeline Templates
+
+Users can create saved pipeline templates at `.claude/pipeline/templates/`:
+
+```markdown
+# .claude/pipeline/templates/quick-release.md
+name: Quick Release
+description: Fast-track release — just QA + security + deploy
+trigger: "quick release", "ship fast", "hotfix deploy"
+steps:
+  - qa-test (scope: regression-only)
+  - security-audit (scope: changed-files-only)
+  - deploy (target: production)
+gates:
+  - after: qa-test → ask "All tests pass. Continue to security?"
+  - after: security-audit → ask "No critical issues. Deploy?"
+```
+
+```markdown
+# .claude/pipeline/templates/full-feature.md
+name: Full Feature Pipeline
+description: Complete pipeline for new features
+trigger: "new feature", "build feature", "full pipeline"
+steps:
+  - product-spec
+  - GATE: approve spec
+  - feature-dev
+  - GATE: review code
+  - PARALLEL:
+    - design-audit
+    - qa-test
+    - security-audit
+    - perf-audit
+    - analytics-audit
+  - GATE: approve quality
+  - deploy (target: staging)
+  - qa-test (scope: smoke-test)
+  - GATE: approve production
+  - deploy (target: production)
+  - app-store (if: mobile)
+```
+
+```markdown
+# .claude/pipeline/templates/audit-only.md
+name: Audit Only
+description: Run all quality checks, no code changes
+trigger: "audit", "check everything", "pre-release check"
+steps:
+  - PARALLEL:
+    - design-audit
+    - qa-test
+    - security-audit
+    - perf-audit
+    - analytics-audit
+  - content-copy (scope: consistency-check)
+  - REPORT: combined findings
+```
+
+**Built-in templates** — `/ship` comes with these defaults:
+- `full-feature` — spec → dev → audit → deploy
+- `bug-fix` — dev → test → deploy
+- `quick-release` — test → security → deploy
+- `audit-only` — all quality skills, no deploy
+- `content-update` — content-copy → app-store
+
+**User creates custom templates:**
+> User: "Create a template called 'design-sprint' that runs product-spec, then design-audit, then content-copy"
+> 
+> `/ship` writes `.claude/pipeline/templates/design-sprint.md` and confirms:
+> "Template 'design-sprint' created. Use it with: `/ship design-sprint`"
+
+### Execution Plan (always show before running)
+
+Before executing ANY pipeline, `/ship` proposes the plan and waits for approval:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Execution Plan: "fix checkout validation"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Template: bug-fix
+Installed skills: 12 of 16
+
+Step 1: qa-test (focused on checkout flow)
+        └─ estimated: 3 min
+Step 2: security-audit (changed files only)
+        └─ estimated: 2 min
+ ──── GATE: review findings ────
+Step 3: deploy → staging
+        └─ estimated: 1 min
+Step 4: qa-test → smoke test on staging
+        └─ estimated: 2 min
+ ──── GATE: approve production deploy ────
+Step 5: deploy → production
+        └─ estimated: 1 min
+
+Total estimated: ~9 min
+Skipped (not installed): analytics-audit, app-store
+Skipped (not relevant): design-audit, data-seed, product-spec
+
+Proceed? [yes / edit plan / change template / cancel]
+```
+
+### Edit Plan Before Running
+
+If the user says "edit plan":
+> "What would you like to change?
+> 1. Add a skill (e.g., 'add design-audit after qa-test')
+> 2. Remove a skill (e.g., 'skip security-audit')
+> 3. Reorder steps
+> 4. Change a skill's scope (e.g., 'qa-test full regression instead of focused')
+> 5. Add/remove gates
+> 6. Switch template"
+
+Example edits:
+- "Add perf-audit after security" → inserts perf-audit as Step 3
+- "Skip deploy, just audit" → removes deploy steps
+- "Run design-audit and qa-test in parallel" → groups them
+- "Add my-custom-skill after qa-test" → inserts third-party skill
+
+### Mix and Match Third-Party Skills
+
+When a non-standard skill is detected in `~/.claude/skills/`:
+
+> "I found a skill I don't recognize: `/lighthouse-ci`
+> 
+> It describes itself as: 'Run Lighthouse CI audits on web pages'
+> Category: quality | Type: audit
+> 
+> Should I include it in pipelines?
+> 1. Yes, add to all quality audits (runs with design-audit, qa-test, etc.)
+> 2. Yes, but only in the full-feature template
+> 3. No, I'll invoke it manually when needed
+> 
+> Your choice is saved — I won't ask again."
+
+Third-party skills integrate the same way as built-in skills:
+- They read `.claude/pipeline/manifest.md` for context
+- They write their report to `.claude/pipeline/features/[slug]/`
+- The orchestrator passes them the same context
+- If they don't follow the protocol, `/ship` notes: "This skill didn't write a report. Its output was logged but won't be tracked in the pipeline."
+
+### Template Commands
+
+Users can manage templates with natural language:
+
+| Command | What it does |
+|---------|-------------|
+| `/ship` | Auto-detect intent, propose plan |
+| `/ship full-feature` | Use the full-feature template |
+| `/ship quick-release` | Use the quick-release template |
+| "Create a template..." | Save a new custom template |
+| "Edit the bug-fix template" | Modify an existing template |
+| "Delete the design-sprint template" | Remove a custom template |
+| "Show all templates" | List available templates |
+| "What skills are installed?" | Show registry |
+| "Add /lighthouse-ci to the release template" | Edit template to include third-party skill |
+
 ## Skill Discovery
 
 At the start of every pipeline run, discover which skills are installed:
