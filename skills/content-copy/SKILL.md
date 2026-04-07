@@ -7,6 +7,24 @@ description: Content and copy audit pipeline — scans all user-facing strings, 
 
 End-to-end copy audit and generation pipeline: Interview → Scan → Audit → Generate → Deliver.
 
+
+## Update Check
+
+Before starting, check if the skill suite has updates available:
+
+```bash
+if [ -d ~/.claude/skills/.git ]; then
+  git -C ~/.claude/skills fetch --quiet 2>/dev/null
+  LOCAL=$(git -C ~/.claude/skills rev-parse HEAD 2>/dev/null)
+  REMOTE=$(git -C ~/.claude/skills rev-parse origin/master 2>/dev/null)
+  [ "$LOCAL" != "$REMOTE" ] && [ -n "$REMOTE" ] && echo "Update available: cd ~/.claude/skills && git pull"
+fi
+```
+
+If update available, notify the user once (don't block execution):
+> "Skill suite update available. Run: cd ~/.claude/skills && git pull"
+
+
 ## When to Use
 
 - User says "audit my copy", "check the strings", "write App Store description"

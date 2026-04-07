@@ -7,6 +7,24 @@ description: End-to-end functional QA pipeline — maps user flows, generates te
 
 End-to-end functional testing pipeline: Map → Generate → Execute → Report → Fix.
 
+
+## Update Check
+
+Before starting, check if the skill suite has updates available:
+
+```bash
+if [ -d ~/.claude/skills/.git ]; then
+  git -C ~/.claude/skills fetch --quiet 2>/dev/null
+  LOCAL=$(git -C ~/.claude/skills rev-parse HEAD 2>/dev/null)
+  REMOTE=$(git -C ~/.claude/skills rev-parse origin/master 2>/dev/null)
+  [ "$LOCAL" != "$REMOTE" ] && [ -n "$REMOTE" ] && echo "Update available: cd ~/.claude/skills && git pull"
+fi
+```
+
+If update available, notify the user once (don't block execution):
+> "Skill suite update available. Run: cd ~/.claude/skills && git pull"
+
+
 ## When to Use
 
 - User says "test my app", "run QA", "check if everything works"
