@@ -349,17 +349,111 @@ ls packages/ apps/ services/ 2>/dev/null
 grep -q "workspaces" package.json 2>/dev/null
 ```
 
-If monorepo detected, ask:
-> "This is a monorepo. I found multiple apps:
-> 1. `packages/web` — Next.js
-> 2. `packages/mobile` — React Native
-> 3. `packages/api` — Express
+If monorepo detected:
+
+**1. Map the workspace:**
+```bash
+# Find all apps/packages
+find packages/ apps/ services/ -maxdepth 1 -name "package.json" 2>/dev/null | while read f; do
+  dir=$(dirname "$f")
+  name=$(grep -o '"name": "[^"]*"' "$f" | head -1 | cut -d'"' -f4)
+  # Detect type
+  type="unknown"
+  grep -q "react-native\|expo" "$f" && type="mobile"
+  grep -q "next\|nuxt\|vite\|react-dom" "$f" && type="web"
+  grep -q "express\|fastify\|hono\|koa" "$f" && type="api"
+  # Check if it's a shared lib (imported by others, not runnable)
+  grep -q '"main"\|"exports"' "$f" && ! grep -q '"start"\|"dev"' "$f" && type="library"
+  echo "$dir | $name | $type"
+done
+```
+
+**2. Ask the user:**
+> "This is a monorepo. I found:
 > 
-> Which one should I work on? Or all?"
+> **Apps:**
+> 1. `packages/web` — Next.js (web)
+> 2. `packages/mobile` — React Native (mobile)
+> 3. `packages/api` — Express (api)
+> 
+> **Shared libraries:**
+> - `packages/ui` — shared component library
+> - `packages/utils` — shared utilities
+> 
+> Options:
+> 1. **Single app** — target one app (fastest)
+> 2. **All apps** — audit each app + shared code (thorough)
+> 3. **Changed apps only** — detect which apps are affected by recent changes"
 
-Store the selected app root. All skills scope their scans to that directory, not the repo root.
+**3. Scope handling:**
 
-For shared packages (`packages/ui`, `packages/utils`), note them as dependencies that cross-app skills should scan.
+**Single app mode:**
+```markdown
+## Manifest
+scope: packages/web
+scope_type: single
+shared_dependencies: packages/ui, packages/utils
+```
+- All skills scan `packages/web/` as the root
+- Also scan shared dependencies (`packages/ui/`) since changes there affect the target app
+- Maestro/Playwright runs against this app only
+- Reports go to `.claude/pipeline/features/[slug]/web/`
+
+**All apps mode:**
+```markdown
+## Manifest  
+scope: all
+apps:
+  - path: packages/web, type: web, platform: playwright
+  - path: packages/mobile, type: mobile, platform: maestro
+  - path: packages/api, type: api, platform: none
+shared:
+  - packages/ui
+  - packages/utils
+```
+- Skills run per-app in sequence (or parallel if independent)
+- Each app gets its own report subdirectory
+- Shared code gets scanned once, findings attributed to all apps
+- Combined summary at the end: "Web: 3 issues, Mobile: 5 issues, API: 1 issue, Shared: 2 issues"
+
+**Changed apps only mode:**
+```bash
+# Detect which packages changed
+git diff --name-only HEAD~5 | cut -d'/' -f1-2 | sort -u
+# Map to affected apps via dependency graph
+# If packages/ui changed → both web and mobile are affected
+```
+Only run skills on affected apps. This is the fastest for CI.
+
+**4. Shared library handling:**
+
+When a shared library (`packages/ui`) changes:
+- Run `/design-audit` on every app that imports from it (they might render differently)
+- Run `/qa-test` on every app (shared component behavior may differ per platform)
+- Run `/security-audit` once on the library itself (no need per-app)
+- Run `/perf-audit` per-app (bundle impact differs)
+
+Detect dependencies:
+```bash
+# Which apps import from packages/ui?
+grep -rl "from.*packages/ui\|@acme/ui" packages/web/src packages/mobile/src 2>/dev/null
+```
+
+**5. Cross-app consistency checks:**
+
+For monorepos with web + mobile sharing a component library:
+- Do the same components render consistently across platforms?
+- Are design tokens (colors, spacing) identical or intentionally different?
+- Are API contracts the same (both apps hit the same endpoints)?
+
+Add a cross-app section to the report:
+```markdown
+## Cross-App Consistency
+| Component | Web | Mobile | Match? |
+|-----------|-----|--------|--------|
+| Button primary | teal, 12px radius | teal, 12px radius | ✅ |
+| Card spacing | 24px padding | 20px padding | ❌ Mismatch |
+```
 
 ### 2. Docker / Container Development
 
