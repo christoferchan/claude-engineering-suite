@@ -195,26 +195,91 @@ Ask the user if intent is ambiguous: "Are you building a new feature, fixing a b
 
 When `/ship` runs on a project for the first time, detect and create what's missing:
 
-### Step 1: Check project essentials
+### Step 1: Check project essentials (search by PURPOSE, not filename)
 
+Projects name things differently. Search for the concept, not the exact file.
+
+**Pipeline directory:**
 ```bash
-# Pipeline directory
 ls .claude/pipeline/manifest.md 2>/dev/null || echo "NO_PIPELINE"
+```
 
-# Design system
-find src/ -name "theme.*" -o -name "tokens.*" -o -name "tailwind.config.*" 2>/dev/null | head -1 || echo "NO_THEME"
+**Design system / tokens / theme (any of these count):**
+```bash
+# React Native
+find . -path ./node_modules -prune -o -name "theme.*" -print -o -name "tokens.*" -print -o -name "colors.*" -print -o -name "design-system.*" -print -o -name "designTokens.*" -print 2>/dev/null | head -5
+# Tailwind
+find . -name "tailwind.config.*" 2>/dev/null | head -1
+# CSS variables / custom properties
+grep -rl ":root" --include="*.css" --include="*.scss" . 2>/dev/null | head -3
+# Styled Components / Emotion theme
+grep -rl "ThemeProvider\|createTheme\|theme:" src/ --include="*.ts" --include="*.tsx" --include="*.js" 2>/dev/null | head -3
+# Flutter
+find . -name "*.dart" -exec grep -l "ThemeData" {} \; 2>/dev/null | head -3
+# SwiftUI
+find . -name "*.swift" -exec grep -l "Color(\|\.foregroundColor\|\.background" {} \; 2>/dev/null | head -3
+# Android
+find . -name "themes.xml" -o -name "colors.xml" -o -name "styles.xml" 2>/dev/null | head -3
+# Rails / Django — CSS/SCSS
+find . -name "application.css" -o -name "application.scss" -o -name "base.css" -o -name "variables.scss" -o -name "_variables.scss" 2>/dev/null | head -3
+```
+If ANY of these return results → `HAS_THEME=true`. Store the path.
 
-# Project documentation
-ls CLAUDE.md 2>/dev/null || echo "NO_CLAUDE_MD"
+**Project documentation (any of these count):**
+```bash
+ls CLAUDE.md claude.md .claude/CLAUDE.md 2>/dev/null  # Claude Code
+ls CONTRIBUTING.md DEVELOPMENT.md ARCHITECTURE.md 2>/dev/null  # Standard docs
+ls docs/design-system.md docs/style-guide.md 2>/dev/null  # Design docs
+ls .cursor/rules .windsurf/rules 2>/dev/null  # Other AI tools
+```
+If none exist → generate CLAUDE.md. If non-Claude docs exist, READ them first to understand existing conventions before generating CLAUDE.md.
 
-# Test infrastructure
-ls jest.config.* vitest.config.* 2>/dev/null || echo "NO_TEST_CONFIG"
+**Test infrastructure (any of these count):**
+```bash
+ls jest.config.* vitest.config.* karma.conf.* .mocharc.* pytest.ini setup.cfg tox.ini 2>/dev/null  # Config files
+ls spec/ test/ tests/ __tests__/ cypress/ e2e/ 2>/dev/null  # Test directories
+find . -name "*.test.*" -o -name "*.spec.*" -o -name "*_test.*" 2>/dev/null | head -3  # Test files
+ls pubspec.yaml 2>/dev/null && grep -q "flutter_test" pubspec.yaml && echo "FLUTTER_TESTS"  # Flutter
+ls Gemfile 2>/dev/null && grep -q "rspec\|minitest" Gemfile && echo "RUBY_TESTS"  # Rails
+```
 
-# CI/CD
-ls .github/workflows/*.yml 2>/dev/null || echo "NO_CI"
+**CI/CD (any of these count):**
+```bash
+ls .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null  # GitHub Actions
+ls .gitlab-ci.yml 2>/dev/null  # GitLab CI
+ls Jenkinsfile 2>/dev/null  # Jenkins
+ls .circleci/config.yml 2>/dev/null  # CircleCI
+ls bitbucket-pipelines.yml 2>/dev/null  # Bitbucket
+ls .travis.yml 2>/dev/null  # Travis
+ls vercel.json netlify.toml fly.toml railway.json 2>/dev/null  # Platform-specific
+ls Procfile 2>/dev/null  # Heroku
+ls Dockerfile docker-compose.yml 2>/dev/null  # Docker
+```
 
-# Git
+**Git safety:**
+```bash
 ls .gitignore 2>/dev/null || echo "NO_GITIGNORE"
+# Check secrets aren't committed regardless of .gitignore name
+git ls-files | grep -iE "\.env$|\.env\.local|credentials|secret" | head -5
+```
+
+### How to handle "similar but named differently"
+
+The bootstrap should NEVER say "theme.ts not found" if the project has `tailwind.config.js` serving the same purpose. The check is:
+
+**"Does this project have centralized design tokens?"** — not "does theme.ts exist?"
+**"Does this project have test infrastructure?"** — not "does jest.config.js exist?"
+**"Does this project have CI/CD?"** — not "does .github/workflows exist?"
+
+When a file is found with a non-standard name, log it:
+> "Found design tokens in `src/styles/variables.scss` (not the typical `theme.ts`). I'll use this as the design system source of truth."
+
+When generating CLAUDE.md for a project that has existing conventions in differently-named files, reference those files:
+```markdown
+## Design System
+- Tokens defined in: `src/styles/variables.scss`
+- Component library: `src/ui/` (12 components)
+- Test config: `vitest.config.ts`
 ```
 
 ### Step 2: Create what's missing
