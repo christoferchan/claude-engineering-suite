@@ -1405,13 +1405,174 @@ If a skill fails or finds CRITICAL issues:
 4. **Skill crashes** → Log error, ask user: "Design audit failed to complete. Skip it or retry?"
 5. **API unavailable** → Mark dependent tests as SKIPPED, continue with non-API tests.
 
-## Session Resumption
+## Cross-Instance Resume
 
-If the user leaves and comes back:
+Multiple Claude Code instances (different terminals, different machines, different sessions) can work on the same repo. The pipeline state lives in git, not in any one conversation.
 
-1. Read `.claude/pipeline/manifest.md`
-2. "I see you were working on photo-gallery. Last completed: design-audit. Next up: qa-test. Continue?"
-3. Resume from where they left off — all context is in files.
+### How It Works
+
+**Instance A** (your laptop, evening session):
+```
+1. Runs /ship "add photo gallery"
+2. Completes: product-spec → feature-dev → design-audit
+3. Session ends → auto-writes session log → git commits pipeline state → pushes
+```
+
+**Instance B** (your other terminal, next morning):
+```
+1. Runs /ship resume
+2. Pulls latest → reads manifest.md → sees design-audit was last completed
+3. "Pipeline 'photo-gallery' was last worked on 12 hours ago by Instance A.
+    Completed: product-spec ✅, feature-dev ✅, design-audit ✅
+    Next: qa-test
+    Resume?"
+4. Continues from qa-test
+```
+
+**Instance C** (collaborator, different machine):
+```
+1. Pulls repo → runs /ship status
+2. Sees the same pipeline state
+3. Can resume, or start a parallel feature on a different branch
+```
+
+### Git as the Sync Layer
+
+After every skill completes, the orchestrator commits and pushes:
+```bash
+git add .claude/pipeline/
+git commit -m "pipeline: [skill] complete for [feature] — [summary]"
+git push 2>/dev/null  # Push if remote exists, silent fail if offline
+```
+
+Before resuming, pull latest:
+```bash
+git pull --rebase 2>/dev/null  # Get latest pipeline state
+```
+
+If two instances are running simultaneously on the same feature:
+- The lock file (`.claude/pipeline/.lock`) prevents conflicts
+- Second instance sees: "Pipeline is locked by another session (started 5 min ago). Wait or force unlock?"
+
+If two instances work on DIFFERENT features (different branches):
+- No conflict — each branch has its own manifest state
+- Merge brings pipeline artifacts together
+
+### Instance Identification
+
+Each session identifies itself in the manifest:
+```markdown
+## Active Session
+instance_id: a3f8b2c1 (auto-generated hash of machine + terminal + timestamp)
+machine: christofers-macbook
+started: 2026-04-07T22:00:00Z
+last_heartbeat: 2026-04-07T22:15:00Z
+```
+
+The heartbeat updates every 5 minutes (on any tool call). If heartbeat is stale (>30 min), the instance is considered inactive and another can take over.
+
+## Session Logging
+
+Every session writes a structured log when it ends (or after each major step). This is the historical record that any future instance can read to understand what happened.
+
+### Session Log Format
+
+Written to `.claude/pipeline/history/[date]-[instance-id].md`:
+
+```markdown
+# Session Log — 2026-04-07 evening
+
+## Instance
+machine: christofers-macbook
+duration: 2h 15m
+instance_id: a3f8b2c1
+
+## Feature: photo-gallery
+branch: feature/photo-gallery
+
+## Work Completed
+1. product-spec — 15 min
+   - Generated PRD with 5 user stories
+   - User approved spec with one change: "gallery should support video too"
+   - Output: .claude/pipeline/features/photo-gallery/spec.md
+
+2. feature-dev — 45 min
+   - Created: SpotPhotoGallery.tsx, useSpotPhotos.ts, PhotoUploadSheet.tsx
+   - Modified: spot/[id].tsx (added gallery section)
+   - 4 files changed, 340 insertions
+
+3. design-audit — 30 min
+   - Captured 107 screenshots
+   - Found 5 issues (2 major, 3 minor)
+   - Fixed: dark mode gallery border, image placeholder
+   - Deferred: thumbnail radius (nice-to-have)
+   - Output: .claude/pipeline/features/photo-gallery/design-audit.md
+
+## What's Remaining
+- [ ] qa-test — next up, should focus on upload flow + permissions
+- [ ] security-audit — check image upload validation, file type restrictions
+- [ ] perf-audit — image loading performance, lazy loading
+- [ ] deploy — after all audits pass
+
+## Decisions Made
+- Gallery uses 2-column grid, not horizontal scroll (user preference)
+- Video support deferred to v2 (spec updated)
+- Dark mode placeholder: conservative fix chosen (border, not gradient)
+
+## Context for Next Session
+- The upload flow uses Supabase Storage — test with large files (>5MB)
+- The gallery component has a testID="spot-photo-gallery" for Maestro
+- There's a known issue with image caching on Android (not blocking)
+
+## Blockers
+(none)
+```
+
+### Auto-Write Session Log
+
+The session log is written:
+1. **When the user says "wrap up" / "done for now" / exits** — write the log
+2. **After every GATE (human approval point)** — checkpoint the progress
+3. **Every 30 minutes** — heartbeat + incremental log update
+4. **On crash recovery** — read the partial log to understand what was in progress
+
+### How Next Session Uses the Log
+
+When `/ship resume` is invoked:
+
+```bash
+# Find the latest session log
+LATEST_LOG=$(ls -t .claude/pipeline/history/*.md 2>/dev/null | head -1)
+```
+
+Read it and present:
+> "Last session (2 hours ago, your MacBook):
+> 
+> **Feature:** photo-gallery
+> **Completed:** spec ✅, dev ✅, design-audit ✅ (5 issues found, 4 fixed)
+> **Next:** qa-test
+> **Key context:** Upload uses Supabase Storage, test with >5MB files
+> **Decisions:** 2-column grid, video deferred to v2
+> **Blockers:** none
+> 
+> Resume from qa-test?"
+
+This means ANY instance — same machine, different machine, different developer — can pick up exactly where the last session left off, with full context on what happened, why decisions were made, and what to focus on.
+
+### Session Summary at End of Work
+
+When wrapping up, also update the manifest with a human-readable summary:
+```markdown
+## Last Session Summary
+date: 2026-04-07
+completed: product-spec, feature-dev, design-audit
+next: qa-test
+context: upload uses Supabase Storage, gallery has testID, dark mode fixed
+decisions: 2-column grid, video deferred
+blockers: none
+```
+
+This summary stays in the manifest so `/ship status` always shows the latest state without reading the full session log.
 
 ## Metrics (optional)
 
