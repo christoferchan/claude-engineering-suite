@@ -166,6 +166,29 @@ you: use security-audit
 ✅  use design-audit              ← or run skills directly
 ```
 
+## Updating
+
+The suite checks for updates automatically when you load `/ship`. If an update is available, you'll see:
+
+```
+⚠️ Skill suite update available (3 commits behind)
+   Run: cd ~/.claude/skills && git pull
+   Then: /reload-plugins
+```
+
+To update manually:
+```bash
+cd ~/.claude/skills
+git pull
+```
+
+Then in Claude Code:
+```
+/reload-plugins
+```
+
+See [CHANGELOG.md](CHANGELOG.md) for what changed.
+
 ## Credits
 
 Created by [Christofer Chan](https://github.com/christoferchan) at [Odd Hours](https://oddhours.ai).

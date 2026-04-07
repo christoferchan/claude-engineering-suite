@@ -94,6 +94,40 @@ The orchestrator:
 - Git commits after each phase
 - Stops at human approval gates
 
+## Version Check
+
+On every skill load, check if updates are available:
+
+```bash
+# Check for updates (silent, non-blocking)
+SKILLS_DIR=$(dirname "$(dirname "$(realpath ~/.claude/skills/ship/SKILL.md)")")
+if [ -d "$SKILLS_DIR/.git" ]; then
+  git -C "$SKILLS_DIR" fetch --quiet 2>/dev/null
+  LOCAL=$(git -C "$SKILLS_DIR" rev-parse HEAD 2>/dev/null)
+  REMOTE=$(git -C "$SKILLS_DIR" rev-parse origin/master 2>/dev/null)
+  if [ "$LOCAL" != "$REMOTE" ] && [ -n "$REMOTE" ]; then
+    BEHIND=$(git -C "$SKILLS_DIR" rev-list HEAD..origin/master --count 2>/dev/null)
+    echo "⚠️ Skill suite update available ($BEHIND commits behind)"
+    echo "   Run: cd ~/.claude/skills && git pull && /reload-plugins"
+  fi
+fi
+```
+
+If an update is available, show at the TOP of any output:
+```
+⚠️ Skill suite update available (3 commits behind)
+   Run: cd ~/.claude/skills && git pull
+   Then: /reload-plugins
+
+Changelog: https://github.com/christoferchan/claude-engineering-suite/blob/master/CHANGELOG.md
+```
+
+**Rules:**
+- Check once per skill load, not on every command
+- Never block execution for updates — just notify
+- If offline or git fails, skip silently
+- If skills were installed via copy (not git clone), skip version check
+
 ## How to Invoke
 
 **IMPORTANT:** Claude Code skills are NOT CLI commands. You can't type `/ship audit-only` as a single command. Here's how it actually works:
